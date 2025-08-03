@@ -44,6 +44,8 @@ export const registerServiceWorker = () => {
                   });
                 } else {
                   console.log('Service worker installed for the first time');
+                  // Save first install time
+                  localStorage.setItem('lastSyncTime', new Date().toISOString());
                 }
               }
             });
@@ -55,6 +57,11 @@ export const registerServiceWorker = () => {
               console.log('Update check failed:', err)
             );
           }, 60 * 60 * 1000);
+          
+          // Initialize sync time tracking
+          if (!localStorage.getItem('lastSyncTime')) {
+            localStorage.setItem('lastSyncTime', new Date().toISOString());
+          }
           
           resolve(registration);
         })
@@ -198,3 +205,269 @@ export const isRunningAsPWA = () => {
          window.matchMedia('(display-mode: fullscreen)').matches ||
          window.matchMedia('(display-mode: minimal-ui)').matches;
 };
+
+// Advanced PWA Features
+
+// Cache management functions
+export const getCacheInfo = async () => {
+  if ('caches' in window) {
+    return new Promise((resolve) => {
+      const messageChannel = new MessageChannel();
+      messageChannel.port1.onmessage = (event) => {
+        resolve(event.data);
+      };
+      
+      sendMessageToSW({
+        type: 'GET_CACHE_INFO'
+      }, [messageChannel.port2]);
+    });
+  }
+  return null;
+};
+
+export const clearCache = async (cacheName = null) => {
+  return sendMessageToSW({
+    type: 'CLEAR_CACHE',
+    payload: { cacheName }
+  });
+};
+
+export const preloadContent = async (urls) => {
+  return sendMessageToSW({
+    type: 'CACHE_URLS',
+    payload: { urls }
+  });
+};
+
+// Push notification functions
+export const requestNotificationPermission = async () => {
+  if ('Notification' in window) {
+    const permission = await Notification.requestPermission();
+    return permission === 'granted';
+  }
+  return false;
+};
+
+export const subscribeToPushNotifications = async () => {
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Check if already subscribed
+      const existingSubscription = await registration.pushManager.getSubscription();
+      if (existingSubscription) {
+        return existingSubscription;
+      }
+      
+      // Subscribe to push notifications
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY)
+      });
+      
+      return subscription;
+    } catch (error) {
+      console.error('Failed to subscribe to push notifications:', error);
+      throw error;
+    }
+  }
+  return null;
+};
+
+export const unsubscribeFromPushNotifications = async () => {
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      
+      if (subscription) {
+        await subscription.unsubscribe();
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to unsubscribe from push notifications:', error);
+    }
+  }
+  return false;
+};
+
+// Offline handling functions
+export const queueOfflineAction = async (action) => {
+  if ('localStorage' in window) {
+    const offlineActions = JSON.parse(localStorage.getItem('offlineActions') || '[]');
+    offlineActions.push({
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+      ...action
+    });
+    localStorage.setItem('offlineActions', JSON.stringify(offlineActions));
+    
+    // Try to register background sync
+    try {
+      await registerBackgroundSync('background-sync');
+    } catch (error) {
+      console.log('Background sync not available');
+    }
+  }
+};
+
+export const getOfflineActions = () => {
+  if ('localStorage' in window) {
+    return JSON.parse(localStorage.getItem('offlineActions') || '[]');
+  }
+  return [];
+};
+
+export const clearOfflineActions = () => {
+  if ('localStorage' in window) {
+    localStorage.removeItem('offlineActions');
+  }
+};
+
+// Network status functions
+export const isOnline = () => {
+  return navigator.onLine;
+};
+
+export const onNetworkChange = (callback) => {
+  const handleOnline = () => callback(true);
+  const handleOffline = () => callback(false);
+  
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
+  
+  // Return cleanup function
+  return () => {
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+  };
+};
+
+// Storage functions
+export const getStorageUsage = async () => {
+  if ('storage' in navigator && 'estimate' in navigator.storage) {
+    try {
+      const estimate = await navigator.storage.estimate();
+      return {
+        used: estimate.usage,
+        quota: estimate.quota,
+        percentage: Math.round((estimate.usage / estimate.quota) * 100)
+      };
+    } catch (error) {
+      console.error('Failed to get storage usage:', error);
+    }
+  }
+  return null;
+};
+
+export const requestPersistentStorage = async () => {
+  if ('storage' in navigator && 'persist' in navigator.storage) {
+    try {
+      const granted = await navigator.storage.persist();
+      return granted;
+    } catch (error) {
+      console.error('Failed to request persistent storage:', error);
+    }
+  }
+  return false;
+};
+
+// Install prompt functions
+export const canInstallPWA = () => {
+  return window.deferredPrompt !== undefined;
+};
+
+export const installPWA = async () => {
+  if (window.deferredPrompt) {
+    const prompt = window.deferredPrompt;
+    window.deferredPrompt = null;
+    
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    
+    return outcome === 'accepted';
+  }
+  return false;
+};
+
+// Helper functions
+const urlBase64ToUint8Array = (base64String) => {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  
+  return outputArray;
+};
+
+// PWA Lifecycle Management
+export const initPWAFeatures = async () => {
+  try {
+    // Register service worker
+    const registration = await registerServiceWorker();
+    
+    // Initialize message listener
+    initSWMessageListener((message) => {
+      console.log('SW Message:', message);
+      
+      if (message.type === 'UPDATE_AVAILABLE') {
+        // Show update notification to user
+        window.dispatchEvent(new CustomEvent('sw-update-available'));
+      }
+    });
+    
+    // Request persistent storage
+    await requestPersistentStorage();
+    
+    // Set up network status monitoring
+    onNetworkChange((online) => {
+      if (online) {
+        localStorage.setItem('lastSyncTime', new Date().toISOString());
+        // Process any offline actions
+        const offlineActions = getOfflineActions();
+        if (offlineActions.length > 0) {
+          console.log('Processing offline actions:', offlineActions.length);
+          // These will be processed by the service worker
+        }
+      }
+    });
+    
+    return registration;
+  } catch (error) {
+    console.error('Failed to initialize PWA features:', error);
+    throw error;
+  }
+};
+
+// Install prompt handling
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  console.log('PWA install prompt triggered');
+  e.preventDefault();
+  deferredPrompt = e;
+  window.deferredPrompt = e;
+  
+  // Dispatch custom event for components to listen
+  window.dispatchEvent(new CustomEvent('pwa-installable'));
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('PWA was installed');
+  deferredPrompt = null;
+  window.deferredPrompt = null;
+  
+  // Track installation
+  localStorage.setItem('pwaInstalled', 'true');
+  localStorage.setItem('pwaInstallDate', new Date().toISOString());
+  
+  // Dispatch custom event
+  window.dispatchEvent(new CustomEvent('pwa-installed'));
+});

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FaQuran, FaBookOpen, FaMapMarkerAlt, FaSearch } from 'react-icons/fa';
+import SEO, { generateStructuredData } from '../components/SEO';
+import { SEO_CONFIG } from '../utils/seo';
 
 export default function Home() {
   const [surahs, setSurahs] = useState([]);
@@ -58,9 +60,43 @@ export default function Home() {
     );
   }
 
+  // Generate structured data for homepage
+  const homepageStructuredData = [
+    generateStructuredData("WebApplication", {}),
+    generateStructuredData("Book", {
+      name: "Al-Qur'an Digital",
+      description: "114 Surah Al-Qur'an lengkap dengan terjemahan Indonesia dan audio murotal",
+      url: SEO_CONFIG.siteUrl,
+      chapters: surahs.slice(0, 10).map(surah => ({
+        name: `Surah ${surah.namaLatin}`,
+        url: `${SEO_CONFIG.siteUrl}/surah/${surah.nomor}`,
+        number: surah.nomor
+      }))
+    })
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-cyan-50 py-8">
-      <div className="max-w-4xl mx-auto px-4">
+    <>
+      <SEO
+        title={SEO_CONFIG.defaultTitle}
+        description={SEO_CONFIG.defaultDescription}
+        keywords={[
+          "al quran lengkap",
+          "114 surah quran",
+          "bacaan quran online",
+          "terjemahan quran indonesia",
+          "murotal quran",
+          "aplikasi quran terbaik",
+          "belajar mengaji",
+          "al quran digital gratis"
+        ]}
+        url="/"
+        type="website"
+        structuredData={homepageStructuredData}
+      />
+      
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-cyan-50 py-8">
+        <div className="max-w-4xl mx-auto px-4">
         {/* Header with Icon and Gradient */}
         <header className="mb-12 text-center">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 mb-4 shadow-lg">
@@ -156,7 +192,8 @@ export default function Home() {
             </button>
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
