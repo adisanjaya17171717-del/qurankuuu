@@ -2,7 +2,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Analytics } from "@vercel/analytics/next";
-import { registerServiceWorker } from '@/utils/serviceWorker';
+import { 
+  registerServiceWorker, 
+  initPWAFeatures,
+  isRunningAsPWA,
+  onNetworkChange,
+  requestNotificationPermission
+} from '@/utils/serviceWorker';
 import { SiOpenapiinitiative } from 'react-icons/si';
 import { BiMessageRoundedDetail } from 'react-icons/bi';
 import { GiRing } from 'react-icons/gi';
@@ -10,7 +16,8 @@ import {
   FaCog, FaQuran, FaInfoCircle, FaSync, FaHome, 
   FaBook, FaHistory, FaBookmark, FaPlus, 
   FaVideo, FaImages, FaBookOpen, FaHadith, FaEllipsisH,
-  FaRocket, FaTimes, FaCoffee, FaStar, FaChartLine
+  FaRocket, FaTimes, FaCoffee, FaStar, FaChartLine,
+  FaBell, FaWifi, FaDownload
 } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import PermissionManager from '@/components/PermissionManager';
@@ -28,20 +35,60 @@ const RootLayout = ({ children }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [showPopupMenu, setShowPopupMenu] = useState(false);
+  const [isPWA, setIsPWA] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState('default');
+  const [showUpdateNotification, setShowUpdateNotification] = useState(false);
   const registrationRef = useRef(null);
   const popupRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
     
-    // Check if PWA is already installed
-    const isPWAInstalled = localStorage.getItem('pwaInstalled') === 'true';
-    if (!isPWAInstalled) {
-      const timer = setTimeout(() => {
-        setShowInstallBanner(true);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
+    // Initialize PWA features
+    const initApp = async () => {
+      try {
+        // Check if running as PWA
+        const runningAsPWA = isRunningAsPWA();
+        setIsPWA(runningAsPWA);
+        
+        // Initialize all PWA features
+        await initPWAFeatures();
+        
+        // Set up network monitoring
+        const cleanup = onNetworkChange((online) => {
+          if (isMounted) {
+            setIsOnline(online);
+          }
+        });
+        
+        // Check notification permission
+        if ('Notification' in window) {
+          setNotificationPermission(Notification.permission);
+        }
+        
+        // Listen for PWA events
+        const handleUpdateAvailable = () => {
+          if (isMounted) {
+            setShowUpdateNotification(true);
+          }
+        };
+        
+        window.addEventListener('sw-update-available', handleUpdateAvailable);
+        
+        return () => {
+          cleanup();
+          window.removeEventListener('sw-update-available', handleUpdateAvailable);
+        };
+      } catch (error) {
+        console.error('Failed to initialize PWA features:', error);
+      }
+    };
+    
+    initApp();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -596,7 +643,59 @@ const RootLayout = ({ children }) => {
               </motion.div>
             )}
             
-            <PWAInstallPrompt deferredPrompt={deferredPrompt} onInstallClick={handleInstallClick} />
+            {/* PWA Install Prompt */}
+            <PWAInstallPrompt />
+            
+            {/* Update Notification */}
+            {showUpdateNotification && (
+              <motion.div
+                initial={{ opacity: 0, y: -50 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -50 }}
+                className="fixed top-4 left-4 right-4 bg-blue-500 text-white rounded-xl shadow-lg p-4 z-50"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <FaSync className="mr-3 text-lg" />
+                    <div>
+                      <h4 className="font-semibold">Update Tersedia</h4>
+                      <p className="text-sm opacity-90">Versi baru aplikasi telah tersedia</p>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setShowUpdateNotification(false)}
+                      className="px-3 py-1 bg-white/20 rounded-lg text-sm"
+                    >
+                      Nanti
+                    </button>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="px-3 py-1 bg-white text-blue-500 rounded-lg text-sm font-medium"
+                    >
+                      Update
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Network Status Indicator */}
+            {!isOnline && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="fixed top-4 right-4 bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg z-40 flex items-center"
+              >
+                <FaWifi className="mr-2" />
+                <span className="text-sm font-medium">Offline</span>
+              </motion.div>
+            )}
+
+            {/* PWA Status Bar (when running as PWA) */}
+            {isPWA && (
+              <div className="fixed top-0 left-0 right-0 h-1 bg-emerald-500 z-50"></div>
+            )}
           </>
         )}
         <Analytics/>
