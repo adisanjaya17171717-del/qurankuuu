@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FaQuran, FaBookOpen, FaMapMarkerAlt, FaSearch } from 'react-icons/fa';
-import SEO, { generateStructuredData } from '../components/SEO';
-import { SEO_CONFIG } from '../utils/seo';
+import SEO from '../components/SEO';
+import { SEO_CONFIG, generateStructuredData } from '../utils/seo';
 
 export default function Home() {
   const [surahs, setSurahs] = useState([]);
