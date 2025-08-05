@@ -6,8 +6,44 @@ import { supabase } from '@/utils/supabaseClient';
 import { FaPlus, FaCloudUploadAlt, FaTimes, FaHeart, FaRegHeart, FaShare, FaDownload, FaSearch, FaTags, FaSpinner, FaImages } from 'react-icons/fa';
 import { useInView } from 'react-intersection-observer';
 import toast, { Toaster } from 'react-hot-toast';
-import Lightbox from 'react-image-lightbox';
-import 'react-image-lightbox/style.css';
+// Custom lightbox component to replace react-image-lightbox
+const CustomLightbox = ({ isOpen, mainSrc, nextSrc, prevSrc, onCloseRequest, onMovePrevRequest, onMoveNextRequest, imageTitle }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90" onClick={onCloseRequest}>
+      <div className="relative max-w-screen max-h-screen" onClick={(e) => e.stopPropagation()}>
+        <img 
+          src={mainSrc} 
+          alt={imageTitle}
+          className="max-w-full max-h-screen object-contain"
+        />
+        <button
+          onClick={onCloseRequest}
+          className="absolute top-4 right-4 text-white text-2xl bg-black bg-opacity-50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-opacity-70"
+        >
+          ×
+        </button>
+        {prevSrc && (
+          <button
+            onClick={onMovePrevRequest}
+            className="absolute left-4 top-1/2 transform -translate-y-1/2 text-white text-2xl bg-black bg-opacity-50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-opacity-70"
+          >
+            ‹
+          </button>
+        )}
+        {nextSrc && (
+          <button
+            onClick={onMoveNextRequest}
+            className="absolute right-4 top-1/2 transform -translate-y-1/2 text-white text-2xl bg-black bg-opacity-50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-opacity-70"
+          >
+            ›
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 import CreatableSelect from 'react-select/creatable';
 
 const GalleryPage = () => {
@@ -433,7 +469,8 @@ const GalleryPage = () => {
       
       {/* Lightbox */}
       {activeImage && (
-        <Lightbox
+        <CustomLightbox
+          isOpen={true}
           mainSrc={activeImage}
           nextSrc={filteredImages.length > 1 ? filteredImages[(currentImageIndex + 1) % filteredImages.length]?.url : undefined}
           prevSrc={filteredImages.length > 1 ? filteredImages[(currentImageIndex - 1 + filteredImages.length) % filteredImages.length]?.url : undefined}
@@ -441,38 +478,38 @@ const GalleryPage = () => {
           onMovePrevRequest={filteredImages.length > 1 ? movePrev : undefined}
           onMoveNextRequest={filteredImages.length > 1 ? moveNext : undefined}
           imageTitle={filteredImages[currentImageIndex]?.name || "Gambar"}
-          imageCaption={filteredImages[currentImageIndex]?.description}
-          toolbarButtons={[
-            <button 
-              key="download" 
-              className="react-lightbox-button"
-              onClick={() => downloadImage(
-                activeImage, 
-                `${filteredImages[currentImageIndex]?.name.replace(/\s+/g, '_')}.jpg`
-              )}
-            >
-              <FaDownload className="text-white" />
-            </button>,
-            <button 
-              key="like" 
-              className="react-lightbox-button"
-              onClick={() => toggleLike(filteredImages[currentImageIndex].id)}
-            >
-              {likes[filteredImages[currentImageIndex]?.id] ? (
-                <FaHeart className="text-red-500" />
-              ) : (
-                <FaRegHeart className="text-white" />
-              )}
-            </button>,
-            <button 
-              key="share" 
-              className="react-lightbox-button"
-              onClick={() => shareImage(activeImage)}
-            >
-              <FaShare className="text-white" />
-            </button>
-          ]}
         />
+      )}
+      
+      {/* Lightbox toolbar buttons - positioned over the lightbox */}
+      {activeImage && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex space-x-2">
+          <button 
+            className="bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70"
+            onClick={() => downloadImage(
+              activeImage, 
+              `${filteredImages[currentImageIndex]?.name.replace(/\s+/g, '_')}.jpg`
+            )}
+          >
+            <FaDownload />
+          </button>
+          <button 
+            className="bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70"
+            onClick={() => toggleLike(filteredImages[currentImageIndex].id)}
+          >
+            {likes[filteredImages[currentImageIndex]?.id] ? (
+              <FaHeart className="text-red-500" />
+            ) : (
+              <FaRegHeart />
+            )}
+          </button>
+          <button 
+            className="bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70"
+            onClick={() => shareImage(activeImage)}
+          >
+            <FaShare />
+          </button>
+        </div>
       )}
 
       {/* Header */}
@@ -757,20 +794,7 @@ const GalleryPage = () => {
         .animate-fadeIn {
           animation: fadeIn 0.5s ease-out forwards;
         }
-        .react-lightbox-button {
-          background: rgba(0, 0, 0, 0.3);
-          border-radius: 50%;
-          width: 40px;
-          height: 40px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 5px;
-          transition: background 0.3s;
-        }
-        .react-lightbox-button:hover {
-          background: rgba(0, 0, 0, 0.5);
-        }
+
       `}</style>
     </div>
   );

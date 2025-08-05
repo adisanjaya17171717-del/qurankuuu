@@ -10,7 +10,11 @@
   "theme_color": "#059669",
   "lang": "id",
   "dir": "ltr",
-  "categories": ["lifestyle", "education", "books"],
+  "categories": [
+    "lifestyle",
+    "education",
+    "books"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {

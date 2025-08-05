@@ -1,7 +1,18 @@
 // utils/serviceWorker.js
 
+// Check if we're in browser environment
+const isBrowser = typeof window !== 'undefined';
+
 // Fungsi utama untuk mendaftarkan Service Worker
 export const registerServiceWorker = () => {
+  // Return early if not in browser
+  if (!isBrowser) {
+    return Promise.resolve({
+      fake: true,
+      unregister: () => Promise.resolve(true)
+    });
+  }
+
   // Nonaktifkan service worker di development
   if (process.env.NODE_ENV === 'development') {
     console.log('Service worker disabled in development mode');
@@ -185,13 +196,15 @@ export const isSWControlling = () => {
 
 // Fungsi untuk menginisialisasi event listener untuk pesan dari service worker
 export const initSWMessageListener = (callback) => {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (callback && typeof callback === 'function') {
-        callback(event.data);
-      }
-    });
+  if (!isBrowser || !('serviceWorker' in navigator)) {
+    return;
   }
+  
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (callback && typeof callback === 'function') {
+      callback(event.data);
+    }
+  });
 };
 
 // Fungsi untuk memeriksa apakah fitur service worker didukung
@@ -201,6 +214,8 @@ export const isServiceWorkerSupported = () => {
 
 // Fungsi untuk memeriksa apakah aplikasi dijalankan sebagai PWA
 export const isRunningAsPWA = () => {
+  if (!isBrowser) return false;
+  
   return window.matchMedia('(display-mode: standalone)').matches || 
          window.matchMedia('(display-mode: fullscreen)').matches ||
          window.matchMedia('(display-mode: minimal-ui)').matches;
@@ -330,6 +345,10 @@ export const isOnline = () => {
 };
 
 export const onNetworkChange = (callback) => {
+  if (!isBrowser) {
+    return () => {}; // Return empty cleanup function
+  }
+
   const handleOnline = () => callback(true);
   const handleOffline = () => callback(false);
   
@@ -397,7 +416,7 @@ const urlBase64ToUint8Array = (base64String) => {
     .replace(/-/g, '+')
     .replace(/_/g, '/');
   
-  const rawData = window.atob(base64);
+  const rawData = isBrowser ? window.atob(base64) : '';
   const outputArray = new Uint8Array(rawData.length);
   
   for (let i = 0; i < rawData.length; ++i) {
@@ -409,6 +428,10 @@ const urlBase64ToUint8Array = (base64String) => {
 
 // PWA Lifecycle Management
 export const initPWAFeatures = async () => {
+  if (!isBrowser) {
+    return;
+  }
+
   try {
     // Register service worker
     const registration = await registerServiceWorker();
@@ -417,7 +440,7 @@ export const initPWAFeatures = async () => {
     initSWMessageListener((message) => {
       console.log('SW Message:', message);
       
-      if (message.type === 'UPDATE_AVAILABLE') {
+      if (message.type === 'UPDATE_AVAILABLE' && isBrowser) {
         // Show update notification to user
         window.dispatchEvent(new CustomEvent('sw-update-available'));
       }
@@ -449,25 +472,27 @@ export const initPWAFeatures = async () => {
 // Install prompt handling
 let deferredPrompt = null;
 
-window.addEventListener('beforeinstallprompt', (e) => {
-  console.log('PWA install prompt triggered');
-  e.preventDefault();
-  deferredPrompt = e;
-  window.deferredPrompt = e;
-  
-  // Dispatch custom event for components to listen
-  window.dispatchEvent(new CustomEvent('pwa-installable'));
-});
+if (isBrowser) {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    console.log('PWA install prompt triggered');
+    e.preventDefault();
+    deferredPrompt = e;
+    window.deferredPrompt = e;
+    
+    // Dispatch custom event for components to listen
+    window.dispatchEvent(new CustomEvent('pwa-installable'));
+  });
 
-window.addEventListener('appinstalled', () => {
-  console.log('PWA was installed');
-  deferredPrompt = null;
-  window.deferredPrompt = null;
-  
-  // Track installation
-  localStorage.setItem('pwaInstalled', 'true');
-  localStorage.setItem('pwaInstallDate', new Date().toISOString());
-  
-  // Dispatch custom event
-  window.dispatchEvent(new CustomEvent('pwa-installed'));
-});
+  window.addEventListener('appinstalled', () => {
+    console.log('PWA was installed');
+    deferredPrompt = null;
+    window.deferredPrompt = null;
+    
+    // Track installation
+    localStorage.setItem('pwaInstalled', 'true');
+    localStorage.setItem('pwaInstallDate', new Date().toISOString());
+    
+    // Dispatch custom event
+    window.dispatchEvent(new CustomEvent('pwa-installed'));
+  });
+}
