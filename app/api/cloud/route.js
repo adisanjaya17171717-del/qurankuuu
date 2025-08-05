@@ -2,6 +2,16 @@
 // app/api/cloud/route.js
 import { NextResponse } from 'next/server';
 
+// Configure for large file uploads
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '200mb',
+    },
+    responseLimit: false,
+  },
+};
+
 export async function POST(request) {
   try {
     // 1. Ambil file dari request
@@ -28,31 +38,45 @@ export async function POST(request) {
       );
     }
 
-    // 4. Validasi ukuran file (max 10MB untuk streaming)
-    const maxSize = 10 * 1024 * 1024;
+    // 4. Validasi ukuran file (max 200MB)
+    const maxSize = 200 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Ukuran file melebihi batas 10MB' 
+          error: 'Ukuran file melebihi batas 200MB' 
         },
         { status: 400 }
       );
     }
 
-    // 5. Convert file to stream untuk upload yang lebih efisien
+    // 5. Jika file lebih dari 50MB, gunakan chunked upload
+    const chunkedThreshold = 50 * 1024 * 1024;
+    if (file.size > chunkedThreshold) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'File terlalu besar untuk upload langsung. Gunakan chunked upload.',
+          useChunked: true,
+          maxChunkedSize: maxSize
+        },
+        { status: 413 }
+      );
+    }
+
+    // 6. Convert file to stream untuk upload yang lebih efisien
     const fileBuffer = await file.arrayBuffer();
     const fileBlob = new Blob([fileBuffer], { type: file.type });
 
-    // 6. Siapkan payload untuk Filebase RPC dengan streaming
+    // 7. Siapkan payload untuk Filebase RPC dengan streaming
     const uploadForm = new FormData();
     uploadForm.append('file', fileBlob, file.name);
     
-    // 7. Konfigurasi timeout yang lebih lama untuk file besar (60 detik)
+    // 8. Konfigurasi timeout yang lebih lama untuk file besar (2 menit)
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 120000);
 
-    // 8. Kirim ke Filebase RPC API dengan header yang dioptimasi
+    // 9. Kirim ke Filebase RPC API dengan header yang dioptimasi
     const rpcResponse = await fetch(
       'https://rpc.filebase.io/api/v0/add?cid-version=1&pin=true&progress=false',
       {
@@ -66,10 +90,10 @@ export async function POST(request) {
       }
     );
 
-    // 9. Hentikan timeout setelah response diterima
+    // 10. Hentikan timeout setelah response diterima
     clearTimeout(timeout);
 
-    // 10. Handle response dari Filebase
+    // 11. Handle response dari Filebase
     if (!rpcResponse.ok) {
       const errorBody = await rpcResponse.text();
       throw new Error(
@@ -77,18 +101,18 @@ export async function POST(request) {
       );
     }
 
-    // 11. Parse response JSON
+    // 12. Parse response JSON
     const rpcResult = await rpcResponse.json();
     
-    // 12. Pastikan CID ada di response
+    // 13. Pastikan CID ada di response
     if (!rpcResult.Hash) {
       throw new Error('CID tidak ditemukan dalam respons Filebase');
     }
 
-    // 13. Generate public URL
+    // 14. Generate public URL
     const publicUrl = `https://ipfs.filebase.io/ipfs/${rpcResult.Hash}`;
 
-    // 14. Return success response
+    // 15. Return success response
     return NextResponse.json({
       success: true,
       url: publicUrl,
@@ -105,12 +129,12 @@ export async function POST(request) {
     });
 
   } catch (error) {
-    // 15. Handle error secara spesifik
+    // 16. Handle error secara spesifik
     console.error('Filebase IPFS RPC error:', error);
     
     let errorMessage = 'Upload gagal';
     if (error.name === 'AbortError') {
-      errorMessage = 'Waktu upload habis (60 detik)';
+      errorMessage = 'Waktu upload habis (2 menit)';
     } else if (error.message.includes('401')) {
       errorMessage = 'API key tidak valid';
     } else if (error.message.includes('403')) {

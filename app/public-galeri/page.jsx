@@ -61,6 +61,8 @@ const GalleryPage = () => {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isChunkedUpload, setIsChunkedUpload] = useState(false);
   const fileInputRef = useRef(null);
 
   // Fetch gambar dan kategori dari Supabase
@@ -156,14 +158,14 @@ const GalleryPage = () => {
     setFilteredImages(results);
   }, [searchQuery, selectedCategory, images]);
 
-  // Handle file selection (max 1 file)
+  // Handle file selection (max 1 file, up to 200MB)
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    const validFiles = files.filter(file => file.size <= 50 * 1024 * 1024);
+    const validFiles = files.filter(file => file.size <= 200 * 1024 * 1024);
     if (validFiles.length !== files.length) {
-      toast.error('Beberapa file melebihi 50MB dan diabaikan');
+      toast.error('Beberapa file melebihi 200MB dan diabaikan');
     }
 
     // Batasi hanya 1 file
@@ -194,6 +196,55 @@ const GalleryPage = () => {
     );
   };
 
+  // Chunked upload function
+  const uploadInChunks = async (file) => {
+    const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    const fileId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    
+    setUploadProgress(0);
+    setIsChunkedUpload(true);
+    
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('chunkIndex', i);
+        formData.append('totalChunks', totalChunks);
+        formData.append('fileName', file.name);
+        formData.append('fileId', fileId);
+        formData.append('fileType', file.type);
+        
+        const response = await fetch('/api/cloud/chunked', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Chunk upload failed');
+        }
+        
+        if (result.isComplete) {
+          return result; // Upload complete
+        }
+        
+        // Update progress
+        setUploadProgress(result.progress || Math.round(((i + 1) / totalChunks) * 100));
+      }
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsChunkedUpload(false);
+      setUploadProgress(0);
+    }
+  };
+
   // Handle upload (single file)
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
@@ -207,17 +258,27 @@ const GalleryPage = () => {
     setUploading(true);
     
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFiles[0]);
+      const file = selectedFiles[0];
+      let result;
       
-      const res = await fetch('/api/cloud', {
-        method: 'POST',
-        body: formData
-      });
+      // Check if file is large enough to need chunked upload
+      if (file.size > 50 * 1024 * 1024) {
+        // Use chunked upload for files larger than 50MB
+        result = await uploadInChunks(file);
+      } else {
+        // Use regular upload for smaller files
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const res = await fetch('/api/cloud', {
+          method: 'POST',
+          body: formData
+        });
+        
+        result = await res.json();
+      }
       
-      const result = await res.json();
-      
-      if (!result.success) throw new Error('Upload gagal');
+      if (!result.success) throw new Error(result.error || 'Upload gagal');
 
       const galleryInsert = {
         url: result.url,
@@ -260,6 +321,8 @@ const GalleryPage = () => {
     setImageMetadatas([]);
     setShowUploadModal(false);
     setDragActive(false);
+    setUploadProgress(0);
+    setIsChunkedUpload(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -707,6 +770,16 @@ const GalleryPage = () => {
                   })}
                   <p className="text-sm text-gray-500 mt-2">
                     {selectedFiles.length} file dipilih
+                    {selectedFiles[0] && (
+                      <span className="ml-2">
+                        ({(selectedFiles[0].size / (1024 * 1024)).toFixed(1)} MB)
+                        {selectedFiles[0].size > 50 * 1024 * 1024 && (
+                          <span className="text-orange-600 font-medium">
+                            {' '}- Akan menggunakan chunked upload
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </p>
                 </div>
               ) : (
@@ -727,7 +800,7 @@ const GalleryPage = () => {
                   }`} />
                   <p className="font-medium text-lg mb-1">Klik atau tarik file ke sini</p>
                   <p className="text-sm text-gray-500">
-                    Format: JPG, PNG, GIF (max 50MB per file, maks 1 file)
+                    Format: JPG, PNG, GIF, WebP (max 200MB per file, maks 1 file)
                   </p>
                   <button className="mt-6 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-6 rounded-xl transition-colors">
                     Pilih File
@@ -740,9 +813,27 @@ const GalleryPage = () => {
                 ref={fileInputRef}
                 onChange={handleFileChange}
                 className="hidden"
-                accept="image/jpeg,image/png,image/gif"
+                accept="image/jpeg,image/png,image/gif,image/webp"
                 multiple
               />
+
+              {/* Progress Bar */}
+              {(uploading || isChunkedUpload) && (
+                <div className="mt-4">
+                  <div className="flex justify-between text-sm text-gray-600 mb-2">
+                    <span>
+                      {isChunkedUpload ? 'Mengunggah dalam chunks...' : 'Mengunggah...'}
+                    </span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-purple-600 to-pink-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="p-5 border-t flex justify-between bg-gray-50">
@@ -755,17 +846,17 @@ const GalleryPage = () => {
               
               <button
                 onClick={handleUpload}
-                disabled={selectedFiles.length === 0 || uploading}
+                disabled={selectedFiles.length === 0 || uploading || isChunkedUpload}
                 className={`py-3 px-8 rounded-xl transition-all flex items-center justify-center gap-2 font-medium ${
-                  selectedFiles.length > 0 && !uploading 
+                  selectedFiles.length > 0 && !uploading && !isChunkedUpload
                     ? 'bg-gradient-to-r from-purple-600 to-pink-500 text-white hover:opacity-90' 
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {uploading ? (
+                {(uploading || isChunkedUpload) ? (
                   <>
                     <FaSpinner className="animate-spin h-5 w-5 text-current" />
-                    Mengunggah...
+                    {isChunkedUpload ? 'Mengunggah Chunks...' : 'Mengunggah...'}
                   </>
                 ) : (
                   "Unggah Sekarang"
