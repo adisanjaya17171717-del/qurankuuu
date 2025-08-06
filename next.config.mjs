@@ -256,6 +256,8 @@ const nextConfig = {
     ];
   },
 
+
+
   // Enable experimental features for better PWA support
   experimental: {
     optimizeCss: true
