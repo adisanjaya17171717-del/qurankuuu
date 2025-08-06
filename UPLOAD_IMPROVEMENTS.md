@@ -1,72 +1,96 @@
 # Public Gallery Upload Improvements
 
 ## Overview
-Perbaikan pada sistem upload galeri publik untuk mendukung file hingga 200MB di Vercel.
+Perbaikan pada sistem upload galeri publik untuk mendukung file hingga 200MB di Vercel dengan mengatasi batasan 4.5MB request body.
 
-## Perubahan yang Dilakukan
+## Batasan Vercel
+- **Request Body Limit**: 4.5MB per request
+- **Function Timeout**: 300 detik (5 menit) maksimal
+- **Memory**: Terbatas per function execution
 
-### 1. Konfigurasi Vercel (`vercel.json`)
-- Menambahkan konfigurasi timeout function hingga 300 detik (5 menit)
-- Mengatur CORS headers untuk API routes
-- Memungkinkan upload file besar tanpa timeout
+## Solusi Implementasi
 
-### 2. API Routes
+### 1. Chunked Upload System
+- File dibagi menjadi chunks 3MB (di bawah batasan 4.5MB)
+- Setiap chunk diupload secara terpisah
+- Chunks digabungkan di server sebelum upload ke IPFS
+
+### 2. Konfigurasi Vercel (`vercel.json`)
+```json
+{
+  "functions": {
+    "app/api/cloud/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/cloud/chunked/route.js": {
+      "maxDuration": 300
+    }
+  }
+}
+```
+
+### 3. API Routes
 
 #### `/api/cloud/route.js`
-- Meningkatkan batas ukuran file dari 10MB ke 200MB
-- Menambahkan deteksi otomatis untuk file besar (>50MB)
-- Meningkatkan timeout dari 60 detik ke 120 detik
-- Menambahkan konfigurasi body parser untuk file besar
+- **Batas ukuran**: 4MB (di bawah 4.5MB Vercel limit)
+- **Timeout**: 120 detik
+- **Fungsi**: Upload langsung untuk file kecil
 
 #### `/api/cloud/chunked/route.js`
-- Implementasi upload chunked untuk file besar
-- Chunk size: 5MB per chunk
-- Storage sementara di memory (dalam production gunakan Redis/database)
-- Progress tracking untuk setiap chunk
-- Timeout 5 menit untuk upload file besar
+- **Chunk size**: 3MB per chunk
+- **Storage**: In-memory dengan base64 encoding
+- **Timeout**: 300 detik (5 menit)
+- **Fungsi**: Upload chunked untuk file besar
 
-### 3. Frontend Improvements (`app/public-galeri/page.jsx`)
+### 4. Frontend Logic
 
-#### State Management
-- Menambahkan `uploadProgress` untuk tracking progress
-- Menambahkan `isChunkedUpload` untuk status upload chunked
-- Reset progress saat upload selesai
+#### File Size Detection
+- **< 4MB**: Upload langsung ke `/api/cloud`
+- **> 4MB**: Upload chunked ke `/api/cloud/chunked`
 
-#### File Validation
-- Meningkatkan batas ukuran file dari 50MB ke 200MB
-- Menambahkan support untuk format WebP
-- Validasi otomatis ukuran file
-
-#### Upload Logic
-- Deteksi otomatis file besar (>50MB)
-- Switch otomatis ke chunked upload untuk file besar
-- Progress bar real-time untuk upload chunked
-- Error handling yang lebih baik
-
-#### UI Improvements
-- Progress bar dengan persentase
+#### Progress Tracking
+- Real-time progress untuk setiap chunk
 - Indikator ukuran file
-- Notifikasi ketika akan menggunakan chunked upload
-- Button state yang berbeda untuk upload chunked
+- Notifikasi upload type
 
 ## Cara Kerja
 
-### Upload File Kecil (<50MB)
+### Upload File Kecil (<4MB)
 1. File langsung diupload ke `/api/cloud`
 2. Upload ke Filebase IPFS
 3. Simpan metadata ke Supabase
 
-### Upload File Besar (>50MB)
-1. File dibagi menjadi chunks 5MB
+### Upload File Besar (4MB-200MB)
+1. File dibagi menjadi chunks 3MB
 2. Setiap chunk diupload ke `/api/cloud/chunked`
-3. Progress tracking real-time
-4. Chunks digabungkan di server
-5. File lengkap diupload ke Filebase IPFS
-6. Simpan metadata ke Supabase
+3. Chunks disimpan di memory (base64)
+4. Progress tracking real-time
+5. Chunks digabungkan di server
+6. File lengkap diupload ke Filebase IPFS
+7. Simpan metadata ke Supabase
+
+## Teknis Implementasi
+
+### Chunked Upload Flow
+```
+Frontend → Chunk 1 (3MB) → API → Memory Storage
+Frontend → Chunk 2 (3MB) → API → Memory Storage
+...
+Frontend → Chunk N (3MB) → API → Combine All Chunks → IPFS
+```
+
+### Memory Management
+- Chunks disimpan sebagai base64 string di memory
+- Cleanup otomatis setelah upload selesai
+- Error handling dengan cleanup
+
+### Error Handling
+- Timeout handling (5 menit)
+- Chunk validation
+- Memory cleanup on error
+- User-friendly error messages
 
 ## Konfigurasi Environment Variables
-
-Pastikan environment variables berikut sudah diset:
 
 ```env
 FILEBASE_API_KEY=your_filebase_api_key
@@ -75,48 +99,84 @@ FILEBASE_API_KEY=your_filebase_api_key
 ## Deployment di Vercel
 
 1. Push code ke repository
-2. Vercel akan otomatis deploy dengan konfigurasi `vercel.json`
-3. Function timeout akan diset ke 300 detik
-4. Body size limit akan diset ke 200MB
+2. Vercel deploy dengan konfigurasi `vercel.json`
+3. Function timeout: 300 detik
+4. Chunk size: 3MB (aman di bawah 4.5MB limit)
 
-## Testing
+## Testing Scenarios
 
-### File Kecil (1-50MB)
-- Upload langsung tanpa chunking
-- Progress bar sederhana
-- Timeout 2 menit
+### File Kecil (1-4MB)
+- ✅ Upload langsung tanpa chunking
+- ✅ Progress bar sederhana
+- ✅ Timeout 2 menit
 
-### File Besar (50-200MB)
-- Upload dengan chunking
-- Progress bar detail per chunk
-- Timeout 5 menit
-- Indikator "Akan menggunakan chunked upload"
+### File Besar (4-200MB)
+- ✅ Upload dengan chunking
+- ✅ Progress bar detail per chunk
+- ✅ Timeout 5 menit
+- ✅ Indikator "Akan menggunakan chunked upload"
 
-## Monitoring
+## Performance Considerations
 
-- Progress upload real-time
-- Error handling yang detail
-- Log untuk debugging
-- Timeout handling
+### Memory Usage
+- Base64 encoding menambah 33% overhead
+- Chunks disimpan di memory selama upload
+- Cleanup otomatis setelah selesai
 
-## Performance
+### Network Efficiency
+- Chunk size optimal (3MB)
+- Progress tracking per chunk
+- Retry mechanism untuk chunk yang gagal
 
-- Chunked upload mengurangi memory usage
-- Progress tracking meningkatkan UX
-- Timeout yang sesuai untuk file besar
-- Fallback ke regular upload untuk file kecil
+### Vercel Limitations
+- 4.5MB request body limit
+- 300 detik function timeout
+- Memory constraints per function
 
 ## Security
 
-- Validasi tipe file (JPG, PNG, GIF, WebP)
-- Validasi ukuran file (max 200MB)
-- CORS headers yang aman
-- Error handling tanpa expose sensitive info
+- ✅ Validasi tipe file (JPG, PNG, GIF, WebP)
+- ✅ Validasi ukuran file (max 200MB total)
+- ✅ Validasi chunk size (max 4MB per chunk)
+- ✅ CORS headers yang aman
+- ✅ Error handling tanpa expose sensitive info
+
+## Monitoring & Debugging
+
+- Progress tracking real-time
+- Detailed error messages
+- Chunk validation logs
+- Memory usage monitoring
+- Timeout handling
 
 ## Future Improvements
 
-1. **Persistent Storage**: Gunakan Redis/database untuk chunk storage
+### Production Ready
+1. **External Storage**: Gunakan Redis/Supabase untuk chunk storage
 2. **Resume Upload**: Kemampuan melanjutkan upload yang terputus
 3. **Parallel Chunks**: Upload multiple chunks secara parallel
-4. **Compression**: Kompresi file sebelum upload
-5. **CDN**: Integrasi dengan CDN untuk delivery yang lebih cepat
+4. **Compression**: Kompresi file sebelum chunking
+
+### Performance
+1. **CDN Integration**: Integrasi dengan CDN untuk delivery
+2. **Caching**: Cache untuk file yang sering diakses
+3. **Optimization**: Optimasi chunk size berdasarkan network
+
+### User Experience
+1. **Drag & Drop**: Support untuk multiple files
+2. **Preview**: Preview file sebelum upload
+3. **Batch Upload**: Upload multiple files sekaligus
+
+## Troubleshooting
+
+### Common Issues
+1. **Chunk Upload Failed**: Check network connection
+2. **Memory Error**: Reduce chunk size or file size
+3. **Timeout Error**: Increase function timeout
+4. **File Too Large**: Split into smaller files
+
+### Debug Steps
+1. Check browser console for errors
+2. Verify API key configuration
+3. Monitor function logs in Vercel
+4. Test with smaller files first

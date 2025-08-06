@@ -2,17 +2,10 @@
 // app/api/cloud/chunked/route.js
 import { NextResponse } from 'next/server';
 
-// Configure for large file uploads
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '200mb',
-    },
-    responseLimit: false,
-  },
-};
+// Note: Each chunk must be under 4MB for Vercel API routes
 
-// In-memory storage for chunks (in production, use Redis or database)
+// In-memory storage for chunks (temporary solution)
+// In production, use Redis, Supabase, or external storage
 const chunkStorage = new Map();
 
 export async function POST(request) {
@@ -44,6 +37,18 @@ export async function POST(request) {
       );
     }
 
+    // Validasi ukuran chunk (max 4MB untuk Vercel)
+    const maxChunkSize = 4 * 1024 * 1024;
+    if (chunk.size > maxChunkSize) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Chunk terlalu besar. Maksimal 4MB per chunk.' 
+        },
+        { status: 400 }
+      );
+    }
+
     // Simpan chunk ke memory storage
     if (!chunkStorage.has(fileId)) {
       chunkStorage.set(fileId, {
@@ -53,23 +58,33 @@ export async function POST(request) {
     }
 
     const fileData = chunkStorage.get(fileId);
-    fileData.chunks.set(chunkIndex, chunk);
+    
+    // Convert chunk to base64 for storage
+    const chunkBuffer = await chunk.arrayBuffer();
+    const base64Chunk = Buffer.from(chunkBuffer).toString('base64');
+    fileData.chunks.set(chunkIndex, base64Chunk);
 
     // Jika ini adalah chunk terakhir, gabungkan semua chunk dan upload ke IPFS
     if (chunkIndex === totalChunks - 1) {
       try {
+        // Verifikasi semua chunk sudah diterima
+        for (let i = 0; i < totalChunks; i++) {
+          if (!fileData.chunks.has(i)) {
+            throw new Error(`Chunk ${i} tidak ditemukan`);
+          }
+        }
+
         // Gabungkan semua chunk
         const chunks = [];
         for (let i = 0; i < totalChunks; i++) {
-          const chunkData = fileData.chunks.get(i);
-          if (!chunkData) {
-            throw new Error(`Chunk ${i} tidak ditemukan`);
-          }
-          chunks.push(chunkData);
+          const base64Chunk = fileData.chunks.get(i);
+          const chunkBuffer = Buffer.from(base64Chunk, 'base64');
+          chunks.push(chunkBuffer);
         }
 
-        // Gabungkan chunks menjadi satu file
-        const combinedBlob = new Blob(chunks, { type: fileType });
+        // Gabungkan chunks menjadi satu buffer
+        const combinedBuffer = Buffer.concat(chunks);
+        const combinedBlob = new Blob([combinedBuffer], { type: fileType });
 
         // Upload ke Filebase IPFS
         const uploadForm = new FormData();

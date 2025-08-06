@@ -2,15 +2,8 @@
 // app/api/cloud/route.js
 import { NextResponse } from 'next/server';
 
-// Configure for large file uploads
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '200mb',
-    },
-    responseLimit: false,
-  },
-};
+// Note: Vercel has 4.5MB body size limit for API routes
+// Large files must use chunked upload
 
 export async function POST(request) {
   try {
@@ -38,27 +31,15 @@ export async function POST(request) {
       );
     }
 
-    // 4. Validasi ukuran file (max 200MB)
-    const maxSize = 200 * 1024 * 1024;
+    // 4. Validasi ukuran file (max 4MB untuk Vercel API routes)
+    const maxSize = 4 * 1024 * 1024; // 4MB limit for Vercel
     if (file.size > maxSize) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Ukuran file melebihi batas 200MB' 
-        },
-        { status: 400 }
-      );
-    }
-
-    // 5. Jika file lebih dari 50MB, gunakan chunked upload
-    const chunkedThreshold = 50 * 1024 * 1024;
-    if (file.size > chunkedThreshold) {
       return NextResponse.json(
         { 
           success: false, 
           error: 'File terlalu besar untuk upload langsung. Gunakan chunked upload.',
           useChunked: true,
-          maxChunkedSize: maxSize
+          maxChunkedSize: 200 * 1024 * 1024 // 200MB max for chunked
         },
         { status: 413 }
       );

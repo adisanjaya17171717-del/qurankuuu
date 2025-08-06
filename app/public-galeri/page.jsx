@@ -198,7 +198,7 @@ const GalleryPage = () => {
 
   // Chunked upload function
   const uploadInChunks = async (file) => {
-    const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+    const chunkSize = 3 * 1024 * 1024; // 3MB chunks (under Vercel's 4.5MB limit)
     const totalChunks = Math.ceil(file.size / chunkSize);
     const fileId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
     
@@ -261,9 +261,9 @@ const GalleryPage = () => {
       const file = selectedFiles[0];
       let result;
       
-      // Check if file is large enough to need chunked upload
-      if (file.size > 50 * 1024 * 1024) {
-        // Use chunked upload for files larger than 50MB
+      // Check if file is large enough to need chunked upload (over 4MB)
+      if (file.size > 4 * 1024 * 1024) {
+        // Use chunked upload for files larger than 4MB (Vercel limit)
         result = await uploadInChunks(file);
       } else {
         // Use regular upload for smaller files
@@ -773,7 +773,7 @@ const GalleryPage = () => {
                     {selectedFiles[0] && (
                       <span className="ml-2">
                         ({(selectedFiles[0].size / (1024 * 1024)).toFixed(1)} MB)
-                        {selectedFiles[0].size > 50 * 1024 * 1024 && (
+                        {selectedFiles[0].size > 4 * 1024 * 1024 && (
                           <span className="text-orange-600 font-medium">
                             {' '}- Akan menggunakan chunked upload
                           </span>
